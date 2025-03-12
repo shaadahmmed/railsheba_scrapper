@@ -53,8 +53,8 @@ def scrapper():
     time_to_wait = (start_time - current_time).total_seconds()
     if time_to_wait < 0:
         print("Time has already passed!")
-        exit()
-    time.sleep(time_to_wait)
+    else:
+        time.sleep(time_to_wait)
     from_station = os.getenv("FROM_STATION")
     to_station = os.getenv("TO_STATION")
     date_of_journey = os.getenv("DATE")
@@ -99,6 +99,8 @@ def scrapper():
     train_seat_dict = train_seat_response.json()
     # print(train_seat_dict)
     seat_layout = train_seat_dict["data"]["seatLayout"]
+    desired_seats = eval(os.getenv("DESIRED_SEATS"))
+    desired_seats_from_train = []
 
     seats_dict = {
         "trip_id": trip_id,
@@ -117,6 +119,10 @@ def scrapper():
                 right = []
                 isLeft = True
                 for seat in row:
+                    if len(desired_seats_from_train) == number_of_seats:
+                        break
+                    if seat["seat_number"] in desired_seats:
+                        desired_seats_from_train.append(seat)
                     if seat["seat_number"] == "":
                         isLeft = False
                     if seat["seat_availability"]:
@@ -126,7 +132,21 @@ def scrapper():
                             right.append(seat)
                         available_rooms[room["floor_name"]].append(seat)
 
-                if len(left) >= number_of_seats:
+                if len(desired_seats_from_train) == number_of_seats:
+                    for seat in desired_seats_from_train:
+                        if not book_seat(
+                            {
+                                "ticket_id": seat["ticket_id"],
+                                "route_id": trip_route_id,
+                            },
+                            headers,
+                        ):
+                            continue
+                        print(seat)
+                        seats_dict["ticket_ids"].append(seat["ticket_id"])
+                    seat_reserved = True
+                    break
+                elif len(left) >= number_of_seats:
                     count = 0
                     for seat in left:
                         if not book_seat(
