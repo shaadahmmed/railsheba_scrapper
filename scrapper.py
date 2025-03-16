@@ -62,33 +62,44 @@ def scrapper():
     trip_number = os.getenv("TRAIN_NAME")
     number_of_seats = int(os.getenv("NUMBER_OF_PASSENGERS"))
     train_search_url = f"https://railspaapi.shohoz.com/v1.0/web/bookings/search-trips-v2?from_city={from_station}&to_city={to_station}&date_of_journey={date_of_journey}&seat_class={seat_class}"
-    train_search_response = requests.get(train_search_url, headers=headers)
-    train_search_dict = train_search_response.json()
+    train_search_dict = None
+    while True:
+        print("Searching for the train...")
+        train_search_response = requests.get(train_search_url, headers=headers)
+        train_search_dict = train_search_response.json()
+        if train_search_dict["data"]["trains"]:
+            break
+
+    print("Train Found!")
+
     trip_id = ""
     # route_id = ""
     trip_route_id = ""
     boarding_point_id = ""
+    while not trip_id:
+        print("Searching for the seat...")
+        train_search_response = requests.get(train_search_url, headers=headers)
+        train_search_dict = train_search_response.json()
+        for train in train_search_dict["data"]["trains"]:
+            if train["trip_number"] == trip_number:
+                for seat_type in train["seat_types"]:
+                    if seat_type["type"] == seat_class:
+                        seat_counts = (
+                            seat_type["seat_counts"]["online"]
+                            + seat_type["seat_counts"]["offline"]
+                        )
+                        if seat_counts < number_of_seats:
+                            continue
+                        else:
+                            print("Seat Available!")
+                            print("Seat Count: ", seat_counts)
+                            trip_id = seat_type["trip_id"]
+                            # route_id = seat_type["route_id"]
+                            trip_route_id = seat_type["trip_route_id"]
+                            break
 
-    for train in train_search_dict["data"]["trains"]:
-        if train["trip_number"] == trip_number:
-            for seat_type in train["seat_types"]:
-                if seat_type["type"] == seat_class:
-                    seat_counts = (
-                        seat_type["seat_counts"]["online"]
-                        + seat_type["seat_counts"]["offline"]
-                    )
-                    if seat_counts < number_of_seats:
-                        continue
-                    else:
-                        print("Seat Available!")
-                        print("Seat Count: ", seat_counts)
-                        trip_id = seat_type["trip_id"]
-                        # route_id = seat_type["route_id"]
-                        trip_route_id = seat_type["trip_route_id"]
-                        break
-
-            boarding_point_id = train["boarding_points"][0]["trip_point_id"]
-            break
+                boarding_point_id = train["boarding_points"][0]["trip_point_id"]
+                break
 
     if trip_id == "":
         print("No Seat Available for the selected train!")
