@@ -5,13 +5,18 @@ from dotenv import load_dotenv
 from os import environ
 import webbrowser
 
-login_url = "https://railspaapi.shohoz.com/v1.0/web/auth/sign-in"
 
-
-def book_seat(json, headers):
-    print("Trying to book seat...", json["ticket_id"])
+def reserve_seat(ticket_id, trip_route_id, headers):
+    print(f"Trying to book {ticket_id}")
     seat_book_url = "https://railspaapi.shohoz.com/v1.0/web/bookings/reserve-seat"
-    res = requests.patch(seat_book_url, json=json, headers=headers)
+    res = requests.patch(
+        seat_book_url,
+        json={
+            "ticket_id": ticket_id,
+            "route_id": trip_route_id,
+        },
+        headers=headers,
+    )
     res_dict = res.json()
     if res_dict.get("error"):
         print(res_dict["error"]["messages"])
@@ -19,8 +24,25 @@ def book_seat(json, headers):
     return True
 
 
-def scrapper():
-    load_dotenv(dotenv_path=".env", override=True)
+def release_seat(ticket_id, trip_route_id, headers):
+    print("Trying to relase seat", ticket_id)
+    seat_release_url = "https://railspaapi.shohoz.com/v1.0/web/bookings/release-seat"
+    res = requests.patch(
+        seat_release_url,
+        json={"ticket_id": ticket_id, "route_id": trip_route_id},
+        headers=headers,
+    )
+    res_dict = res.json()
+    if res_dict.get("error"):
+        print(res_dict["error"]["messages"])
+        return False
+    print("Seat Released!")
+    return True
+
+
+def login():
+    # profile_url = "https://railspaapi.shohoz.com/v1.0/web/auth/profile"
+    login_url = "https://railspaapi.shohoz.com/v1.0/web/auth/sign-in"
     session = requests.Session()
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/90.0.4430.212 Safari/537.36"
@@ -32,17 +54,19 @@ def scrapper():
     login_response = session.post(login_url, data=login_payload, headers=headers)
     login_dict = login_response.json()
     auth_token = ""
-    # auth_hash = ""
-    # print(login_dict)
     if "data" in login_dict:
         print("Login successful!")
         print("Session Started")
         auth_token = login_dict["data"]["token"]
         # auth_hash = login_dict["extra"]["hash"]
         headers["Authorization"] = f"Bearer {auth_token}"
+        return session, headers
     else:
         print(login_dict["error"]["messages"])
         exit()
+
+
+def wait_time():
     start_time = datetime.now().replace(
         hour=int(environ.get("START_HOUR")),
         minute=int(environ.get("START_MINUTE")),
@@ -56,33 +80,44 @@ def scrapper():
         print("Time has already passed!")
     else:
         time.sleep(time_to_wait)
+
+
+def search_train(headers):
     from_station = environ.get("FROM_STATION")
     to_station = environ.get("TO_STATION")
     date_of_journey = environ.get("DATE")
     seat_class = environ.get("SEAT_CLASS")
-    trip_number = environ.get("TRAIN_NAME")
-    number_of_seats = int(environ.get("NUMBER_OF_PASSENGERS"))
     train_search_url = f"https://railspaapi.shohoz.com/v1.0/web/bookings/search-trips-v2?from_city={from_station}&to_city={to_station}&date_of_journey={date_of_journey}&seat_class={seat_class}"
+
     train_search_dict = None
     while True:
-        print("Searching for the train...")
+        print("Searching for the trains...")
         train_search_response = requests.get(train_search_url, headers=headers)
         train_search_dict = train_search_response.json()
         if train_search_dict["data"]["trains"]:
             break
+    print("Trains Found!")
+    return train_search_dict
 
-    print("Train Found!")
 
+def check_seat_availability(headers):
+    trip_number = environ.get("TRAIN_NAME")
+    seat_class = environ.get("SEAT_CLASS")
+    number_of_seats = int(environ.get("NUMBER_OF_PASSENGERS"))
+
+    count = 0
     trip_id = ""
-    # route_id = ""
     trip_route_id = ""
     boarding_point_id = ""
-    while not trip_id:
-        print("Searching for the seat...")
-        train_search_response = requests.get(train_search_url, headers=headers)
-        train_search_dict = train_search_response.json()
+    while not trip_id and count < 100:
+        count += 1
+        train_search_dict = search_train(headers)
+        print("Finding Desired Train...")
         for train in train_search_dict["data"]["trains"]:
-            if train["trip_number"] == trip_number:
+            if trip_number.upper() in train["trip_number"]:
+                train_found = True
+                print(train["trip_number"], "Found!")
+                print("Checking for the seat availability...")
                 for seat_type in train["seat_types"]:
                     if seat_type["type"] == seat_class:
                         seat_counts = (
@@ -90,6 +125,8 @@ def scrapper():
                             + seat_type["seat_counts"]["offline"]
                         )
                         if seat_counts < number_of_seats:
+                            # time.sleep(0.5)
+                            print("Try No: ", count)
                             continue
                         else:
                             print("Seat Available!")
@@ -97,143 +134,114 @@ def scrapper():
                             trip_id = seat_type["trip_id"]
                             # route_id = seat_type["route_id"]
                             trip_route_id = seat_type["trip_route_id"]
-                            break
-
-                boarding_point_id = train["boarding_points"][0]["trip_point_id"]
-                break
-
+                            boarding_point_id = train["boarding_points"][0][
+                                "trip_point_id"
+                            ]
+                            return (
+                                trip_id,
+                                trip_route_id,
+                                boarding_point_id,
+                                number_of_seats,
+                            )
+    if not train_found:
+        print("Check your train name")
+        print("Train day off or the train is not available!")
+        exit()
     if trip_id == "":
         print("No Seat Available for the selected train!")
         exit()
 
+
+def seat_search(trip_id, trip_route_id, headers):
     train_seat_url = f"https://railspaapi.shohoz.com/v1.0/web/bookings/seat-layout?trip_id={trip_id}&trip_route_id={trip_route_id}"
     train_seat_response = requests.get(train_seat_url, headers=headers)
     train_seat_dict = train_seat_response.json()
-    # print(train_seat_dict)
+    if train_seat_dict.get("error"):
+        print(train_seat_dict["error"]["messages"])
+        print("Try another account")
+        exit()
     seat_layout = train_seat_dict["data"]["seatLayout"]
-    desired_seats = eval(environ.get("DESIRED_SEATS"))
-    desired_seats_from_train = []
+    return seat_layout
 
+
+def any_seat_booking(seat_layout, trip_id, trip_route_id, number_of_seats, headers):
     seats_dict = {
         "trip_id": trip_id,
         "trip_route_id": trip_route_id,
         "ticket_ids": [],
     }
-
-    available_rooms = {}
-    seat_reserved = False
-
+    count = 0
     for room in seat_layout:
         if room["seat_availability"]:
-            available_rooms[room["floor_name"]] = []
+            for row in room["layout"]:
+                for seat in row:
+                    if seat["seat_availability"]:
+                        # release_seat(seat["ticket_id"], trip_route_id, headers)
+                        # continue
+                        if not reserve_seat(seat["ticket_id"], trip_route_id, headers):
+                            continue
+                        count += 1
+                        seats_dict["ticket_ids"].append(seat["ticket_id"])
+                        print("Seat Reserved!", seat["seat_number"])
+                        if count == number_of_seats:
+                            return seats_dict, True
+
+    return seats_dict, False
+
+
+def same_row_seat(seat_layout, trip_id, trip_route_id, number_of_seats, headers):
+    seats_dict = {
+        "trip_id": trip_id,
+        "trip_route_id": trip_route_id,
+        "ticket_ids": [],
+    }
+    count = 0
+    for room in seat_layout:
+        if room["seat_availability"]:
             for row in room["layout"]:
                 left = []
                 right = []
                 isLeft = True
                 for seat in row:
-                    if len(desired_seats_from_train) == number_of_seats:
-                        break
-                    if seat["seat_number"] in desired_seats:
-                        desired_seats_from_train.append(seat)
-                    if seat["seat_number"] == "":
-                        isLeft = False
                     if seat["seat_availability"]:
+                        if seat["seat_number"] == "":
+                            isLeft = False
+                            continue
                         if isLeft:
                             left.append(seat)
                         else:
                             right.append(seat)
-                        available_rooms[room["floor_name"]].append(seat)
 
-                if len(desired_seats_from_train) == number_of_seats:
-                    for seat in desired_seats_from_train:
-                        if not book_seat(
-                            {
-                                "ticket_id": seat["ticket_id"],
-                                "route_id": trip_route_id,
-                            },
-                            headers,
-                        ):
-                            continue
-                        print(seat)
-                        seats_dict["ticket_ids"].append(seat["ticket_id"])
-                        seat_reserved = True
-                    break
-                elif len(left) >= number_of_seats:
+                if len(left) >= number_of_seats:
                     count = 0
                     for seat in left:
-                        print("In the left...")
-                        if not book_seat(
-                            {
-                                "ticket_id": seat["ticket_id"],
-                                "route_id": trip_route_id,
-                            },
-                            headers,
-                        ):
+                        if not reserve_seat(seat["ticket_id"], trip_route_id, headers):
                             left.remove(seat)
                             continue
-                        seats_dict["ticket_ids"].append(seat["ticket_id"])
-                        print(seat)
                         count += 1
+                        seats_dict["ticket_ids"].append(seat["ticket_id"])
+                        print("Seat Reserved!", seat["seat_number"])
+                        # print(seat)
                         if count == number_of_seats:
-                            seat_reserved = True
-                            break
-                    if seat_reserved:
-                        break
+                            return seats_dict, True
+
                 elif len(right) >= number_of_seats:
                     count = 0
                     for seat in right:
-                        print("In the right...")
-                        if not book_seat(
-                            {
-                                "ticket_id": seat["ticket_id"],
-                                "route_id": trip_route_id,
-                            },
-                            headers,
-                        ):
+                        if not reserve_seat(seat["ticket_id"], trip_route_id, headers):
                             right.remove(seat)
                             continue
-                        print(seat)
-                        seats_dict["ticket_ids"].append(seat["ticket_id"])
                         count += 1
+                        seats_dict["ticket_ids"].append(seat["ticket_id"])
+                        print("Seat Reserved!", seat["seat_number"])
+                        # print(seat)
                         if count == number_of_seats:
-                            seat_reserved = True
-                            break
-                    if seat_reserved:
-                        break
+                            return seats_dict, True
 
-        if seat_reserved:
-            break
+    return seats_dict, False
 
-    if not seat_reserved:
-        for room in available_rooms:
-            if len(room) >= number_of_seats:
-                researved_count = 0
-                for seat in room:
-                    if not book_seat(
-                        {
-                            "ticket_id": seat["ticket_id"],
-                            "route_id": trip_route_id,
-                        },
-                        headers,
-                    ):
-                        continue
-                    print(seat)
-                    seats_dict["ticket_ids"].append(seat["ticket_id"])
-                    researved_count += 1
-                    if researved_count == number_of_seats:
-                        seat_reserved = True
-                        break
-            if seat_reserved:
-                break
-    print("Here")
-    if not seat_reserved:
-        print("No available seats!")
-        exit()
 
-    # exit()
-
-    # print(seats_dict["ticket_ids"])
-    # exit()
+def send_otp(session, seats_dict, headers):
     passengers_details_url = (
         "https://railspaapi.shohoz.com/v1.0/web/bookings/passenger-details"
     )
@@ -248,11 +256,39 @@ def scrapper():
         print(before_otp_dict["error"]["messages"])
         exit()
 
+
+def scrapper():
+    load_dotenv(dotenv_path=".env", override=True)
+    session, headers = login()
+    wait_time()
+
+    seat_reserved = False
+    while not seat_reserved:
+        trip_id, trip_route_id, boarding_point_id, number_of_seats = (
+            check_seat_availability(headers)
+        )
+        seat_layout = seat_search(trip_id, trip_route_id, headers)
+        is_any_seat = eval(environ.get("ANY_SEAT"))
+        if not is_any_seat and number_of_seats > 1:
+            seats_dict, seat_reserved = same_row_seat(
+                seat_layout, trip_id, trip_route_id, number_of_seats, headers
+            )
+        if not seat_reserved:
+            seats_dict, seat_reserved = any_seat_booking(
+                seat_layout, trip_id, trip_route_id, number_of_seats, headers
+            )
+
+        if not seat_reserved:
+            print("No available seats!")
+            print("Trying again from the begining...")
+    send_otp(session, seats_dict, headers)
+
     otp = input("Enter OTP: ")
     seats_dict["otp"] = otp
     otp_url = "https://railspaapi.shohoz.com/v1.0/web/bookings/verify-otp"
     after_opt_verification = session.post(otp_url, json=seats_dict, headers=headers)
     print(after_opt_verification.json())
+
     go_to_payment_url = "https://railspaapi.shohoz.com/v1.0/web/bookings/confirm"
     none_list = [None for i in range(number_of_seats)]
     blank_list = ["" for i in range(number_of_seats)]
@@ -260,13 +296,13 @@ def scrapper():
         "is_bkash_online": True,
         "boarding_point_id": boarding_point_id,
         "contactperson": 0,
-        "from_city": from_station,
-        "to_city": to_station,
-        "date_of_journey": date_of_journey,
-        "seat_class": seat_class,
-        "gender": ["male" for i in range(number_of_seats)],
+        "from_city": environ.get("FROM_STATION"),
+        "to_city": environ.get("TO_STATION"),
+        "date_of_journey": environ.get("DATE"),
+        "seat_class": environ.get("SEAT_CLASS"),
+        "gender": eval(environ.get("GENDER")),
         "page": blank_list,
-        "passengerType": ["Adult" for i in range(number_of_seats)],
+        "passengerType": eval(environ.get("PASSENGER_TYPE")),
         "pemail": environ.get("EMAIL"),
         "pmobile": environ.get("MOBILE_NUMBER"),
         "pname": eval(environ.get("PASSENGER_NAME")),
