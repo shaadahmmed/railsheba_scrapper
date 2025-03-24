@@ -173,7 +173,12 @@ def any_seat_booking(seat_layout, trip_id, trip_route_id, number_of_seats, heade
     count = 0
     for room in seat_layout:
         if room["seat_availability"]:
-            for row in room["layout"]:
+            room_layout = None
+            if eval(environ.get("UP_TRAIN")):
+                room_layout = room["layout"][::-1]
+            else:
+                room_layout = room["layout"]
+            for row in room_layout:
                 for seat in row:
                     if seat["seat_availability"]:
                         # release_seat(seat["ticket_id"], trip_route_id, headers)
@@ -198,7 +203,12 @@ def same_row_seat(seat_layout, trip_id, trip_route_id, number_of_seats, headers)
     count = 0
     for room in seat_layout:
         if room["seat_availability"]:
-            for row in room["layout"]:
+            room_layout = None
+            if eval(environ.get("UP_TRAIN")):
+                room_layout = room["layout"][::-1]
+            else:
+                room_layout = room["layout"]
+            for row in room_layout:
                 left = []
                 right = []
                 isLeft = True
@@ -281,6 +291,7 @@ def scrapper():
         if not seat_reserved:
             print("No available seats!")
             print("Trying again from the begining...")
+
     send_otp(session, seats_dict, headers)
 
     otp = input("Enter OTP: ")
