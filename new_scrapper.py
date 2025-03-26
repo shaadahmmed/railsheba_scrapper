@@ -109,7 +109,7 @@ def check_seat_availability(headers):
     trip_id = ""
     trip_route_id = ""
     boarding_point_id = ""
-    while not trip_id and count < 100:
+    while not trip_id:
         count += 1
         train_search_dict = search_train(headers)
         print("Finding Desired Train...")
@@ -158,10 +158,10 @@ def seat_search(trip_id, trip_route_id, headers):
     train_seat_dict = train_seat_response.json()
     if train_seat_dict.get("error"):
         print(train_seat_dict["error"]["messages"])
-        print("Try another account")
-        exit()
-    seat_layout = train_seat_dict["data"]["seatLayout"]
-    return seat_layout
+        return None
+    else:
+        seat_layout = train_seat_dict["data"]["seatLayout"]
+        return seat_layout
 
 
 def any_seat_booking(seat_layout, trip_id, trip_route_id, number_of_seats, headers):
@@ -296,6 +296,8 @@ def scrapper():
             check_seat_availability(headers)
         )
         seat_layout = seat_search(trip_id, trip_route_id, headers)
+        if not seat_layout:
+            continue
         is_any_seat = eval(environ.get("ANY_SEAT"))
         if not is_any_seat and number_of_seats > 1:
             seats_dict, seat_reserved = same_row_seat(
