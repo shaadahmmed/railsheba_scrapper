@@ -241,6 +241,10 @@ def same_row_seat(seat_layout, trip_id, trip_route_id, number_of_seats, headers)
                             right.append(seat)
 
                 if len(left) >= number_of_seats:
+                    if len(seats_dict["ticket_ids"]) > 0:
+                        for ticket_id in seats_dict["ticket_ids"]:
+                            release_seat(ticket_id, trip_route_id, headers)
+                        seats_dict["ticket_ids"] = []
                     count = 0
                     for seat in left:
                         if not reserve_seat(seat["ticket_id"], trip_route_id, headers):
@@ -254,6 +258,10 @@ def same_row_seat(seat_layout, trip_id, trip_route_id, number_of_seats, headers)
                             return seats_dict, True
 
                 elif len(right) >= number_of_seats:
+                    if len(seats_dict["ticket_ids"]) > 0:
+                        for ticket_id in seats_dict["ticket_ids"]:
+                            release_seat(ticket_id, trip_route_id, headers)
+                        seats_dict["ticket_ids"] = []
                     count = 0
                     for seat in right:
                         if not reserve_seat(seat["ticket_id"], trip_route_id, headers):
