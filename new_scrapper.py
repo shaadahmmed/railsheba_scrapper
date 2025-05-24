@@ -5,39 +5,7 @@ from dotenv import load_dotenv
 from os import environ
 import webbrowser
 
-
-def reserve_seat(ticket_id, trip_route_id, headers):
-    print(f"Trying to book {ticket_id}")
-    seat_book_url = "https://railspaapi.shohoz.com/v1.0/web/bookings/reserve-seat"
-    res = requests.patch(
-        seat_book_url,
-        json={
-            "ticket_id": ticket_id,
-            "route_id": trip_route_id,
-        },
-        headers=headers,
-    )
-    res_dict = res.json()
-    if res_dict.get("error"):
-        print(res_dict["error"]["messages"])
-        return False
-    return True
-
-
-def release_seat(ticket_id, trip_route_id, headers):
-    print("Trying to relase seat", ticket_id)
-    seat_release_url = "https://railspaapi.shohoz.com/v1.0/web/bookings/release-seat"
-    res = requests.patch(
-        seat_release_url,
-        json={"ticket_id": ticket_id, "route_id": trip_route_id},
-        headers=headers,
-    )
-    res_dict = res.json()
-    if res_dict.get("error"):
-        print(res_dict["error"]["messages"])
-        return False
-    print("Seat Released!")
-    return True
+from seat import check_seat_availability, get_seat_layout, reserve_seat, release_seat
 
 
 def login():
@@ -80,88 +48,6 @@ def wait_time():
         print("Time has already passed!")
     else:
         time.sleep(time_to_wait)
-
-
-def search_train(headers):
-    from_station = environ.get("FROM_STATION")
-    to_station = environ.get("TO_STATION")
-    date_of_journey = environ.get("DATE")
-    seat_class = environ.get("SEAT_CLASS")
-    train_search_url = f"https://railspaapi.shohoz.com/v1.0/web/bookings/search-trips-v2?from_city={from_station}&to_city={to_station}&date_of_journey={date_of_journey}&seat_class={seat_class}"
-
-    train_search_dict = None
-    while True:
-        print("Searching for the trains...")
-        train_search_response = requests.get(train_search_url, headers=headers)
-        train_search_dict = train_search_response.json()
-        if train_search_dict["data"]["trains"]:
-            break
-    print("Trains Found!")
-    return train_search_dict
-
-
-def check_seat_availability(headers):
-    trip_number = environ.get("TRAIN_NAME")
-    seat_class = environ.get("SEAT_CLASS")
-    number_of_seats = int(environ.get("NUMBER_OF_PASSENGERS"))
-
-    count = 0
-    trip_id = ""
-    trip_route_id = ""
-    boarding_point_id = ""
-    while not trip_id:
-        count += 1
-        train_search_dict = search_train(headers)
-        print("Finding Desired Train...")
-        for train in train_search_dict["data"]["trains"]:
-            if trip_number.upper() in train["trip_number"]:
-                train_found = True
-                print(train["trip_number"], "Found!")
-                print("Checking for the seat availability...")
-                for seat_type in train["seat_types"]:
-                    if seat_type["type"] == seat_class:
-                        seat_counts = (
-                            seat_type["seat_counts"]["online"]
-                            + seat_type["seat_counts"]["offline"]
-                        )
-                        if seat_counts < number_of_seats:
-                            # time.sleep(0.5)
-                            print("Try No: ", count)
-                            continue
-                        else:
-                            print("Seat Available!")
-                            print("Seat Count: ", seat_counts)
-                            trip_id = seat_type["trip_id"]
-                            # route_id = seat_type["route_id"]
-                            trip_route_id = seat_type["trip_route_id"]
-                            boarding_point_id = train["boarding_points"][0][
-                                "trip_point_id"
-                            ]
-                            return (
-                                trip_id,
-                                trip_route_id,
-                                boarding_point_id,
-                                number_of_seats,
-                            )
-    if not train_found:
-        print("Check your train name")
-        print("Train day off or the train is not available!")
-        exit()
-    if trip_id == "":
-        print("No Seat Available for the selected train!")
-        exit()
-
-
-def seat_search(trip_id, trip_route_id, headers):
-    train_seat_url = f"https://railspaapi.shohoz.com/v1.0/web/bookings/seat-layout?trip_id={trip_id}&trip_route_id={trip_route_id}"
-    train_seat_response = requests.get(train_seat_url, headers=headers)
-    train_seat_dict = train_seat_response.json()
-    if train_seat_dict.get("error"):
-        print(train_seat_dict["error"]["messages"])
-        return None
-    else:
-        seat_layout = train_seat_dict["data"]["seatLayout"]
-        return seat_layout
 
 
 def any_seat_booking(seat_layout, trip_id, trip_route_id, number_of_seats, headers):
@@ -303,7 +189,7 @@ def scrapper():
         trip_id, trip_route_id, boarding_point_id, number_of_seats = (
             check_seat_availability(headers)
         )
-        seat_layout = seat_search(trip_id, trip_route_id, headers)
+        seat_layout = get_seat_layout(trip_id, trip_route_id, headers)
         if not seat_layout:
             continue
         is_any_seat = eval(environ.get("ANY_SEAT"))
