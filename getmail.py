@@ -28,7 +28,7 @@ def login():
         exit()
     profile_response = session.get(profile_url, headers=headers)
     profile_dict = profile_response.json()
-    print(profile_dict["data"]["email"], profile_dict["data"]["display_name"], end="\n")
+    print(profile_dict["data"]["email"], profile_dict["data"]["display_name"], sep="\n")
 
 
 load_dotenv(dotenv_path=".env", override=True)
